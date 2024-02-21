@@ -14,6 +14,7 @@ import {
   fetchTopProducts,
   fetchNewProducts,
   filterProducts,
+  searchInput,
 } from "../controllers/productController.js";
 import { authenticate, authorizeAdmin } from "../middlewares/authMiddleware.js";
 import checkId from "../middlewares/checkId.js";
@@ -25,6 +26,7 @@ router
 
 router.route("/allproducts").get(fetchAllProducts);
 router.route("/:id/reviews").post(authenticate, checkId, addProductReview);
+router.route("/search").post(authenticate, searchInput);
 
 router.get("/top", fetchTopProducts);
 router.get("/new", fetchNewProducts);

@@ -1,5 +1,6 @@
 import asyncHandler from "../middlewares/asyncHandler.js";
 import Product from "../models/productModel.js";
+import Search from "../models/searchModel.js";
 
 const addProduct = asyncHandler(async (req, res) => {
   try {
@@ -77,26 +78,23 @@ const removeProduct = asyncHandler(async (req, res) => {
 
 const fetchProducts = asyncHandler(async (req, res) => {
   try {
-    const pageSize = 6;
+    const { keyword } = req.query;
 
-    const keyword = req.query.keyword
-      ? {
-          name: {
-            $regex: req.query.keyword,
-            $options: "i",
-          },
-        }
-      : {};
+    // Check if keyword is empty
+    if (!keyword || keyword.trim() === "") {
+      // If keyword is empty, return an empty array or appropriate message
+      return res.json({ products: [] });
+    }
 
-    const count = await Product.countDocuments({ ...keyword });
-    const products = await Product.find({ ...keyword }).limit(pageSize);
-
-    res.json({
-      products,
-      page: 1,
-      pages: Math.ceil(count / pageSize),
-      hasMore: false,
+    // If keyword is not empty, perform the query
+    const products = await Product.find({
+      name: {
+        $regex: keyword,
+        $options: "i",
+      },
     });
+
+    res.json({ products });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Server Error" });
@@ -210,6 +208,85 @@ const filterProducts = asyncHandler(async (req, res) => {
   }
 });
 
+const searchInput = asyncHandler(async (req, res) => {
+  try {
+    const { value, user } = req.body;
+
+    // Save the search entry to the database
+    let search = await Search.findOne({ user });
+
+    if (search) {
+      // If an existing search entry is found, ensure value is an array
+      search.value = Array.isArray(search.value)
+        ? search.value
+        : [search.value];
+      // Update the value array
+      search.value.push(value);
+    } else {
+      // If no existing search entry is found, create a new one with value as an array
+      search = new Search({
+        value: [value], // Initialize the value array with the new value
+        user,
+      });
+    }
+
+    await search.save();
+
+    // Find the most searched product for the user
+    const recommendation = await findMostSearchedProduct(user);
+
+    res.status(201).json({
+      success: true,
+      message: "Search input saved successfully",
+      recommendation,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+const findMostSearchedProduct = async (userId) => {
+  try {
+    // Find all search documents for the user
+    const searches = await Search.find({ user: userId });
+
+    // Create an empty object to store the count of each search term
+    const searchCounts = {};
+
+    // Iterate through each search document
+    searches.forEach((search) => {
+      // Extract search terms from the document
+      const searchTerms = search.value;
+
+      // Increment the count for each search term
+      searchTerms.forEach((term) => {
+        searchCounts[term] = (searchCounts[term] || 0) + 1;
+      });
+    });
+
+    // Sort the search terms by their counts in descending order
+    const sortedSearchTerms = Object.keys(searchCounts).sort(
+      (a, b) => searchCounts[b] - searchCounts[a]
+    );
+
+    // Get the most searched words
+    let mostSearchedWords = sortedSearchTerms.slice(0, 1); // Get the top 1 most searched word
+
+    // If there are multiple terms with the same highest count, return one randomly
+    if (sortedSearchTerms.length > 1 && searchCounts[sortedSearchTerms[0]] === searchCounts[sortedSearchTerms[1]]) {
+      const randomIndex = Math.floor(Math.random() * mostSearchedWords.length);
+      mostSearchedWords = [mostSearchedWords[randomIndex]];
+    }
+
+    return mostSearchedWords;
+  } catch (error) {
+    console.error("Error finding most searched words:", error);
+    throw error;
+  }
+};
+
+
 export {
   addProduct,
   updateProductDetails,
@@ -221,4 +298,5 @@ export {
   fetchTopProducts,
   fetchNewProducts,
   filterProducts,
+  searchInput,
 };
